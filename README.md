@@ -8,7 +8,7 @@ A personal desktop shell for small, isolated, single-purpose microapps. The shel
 - Rust capability broker in the trusted Tauri core.
 - End-to-end capabilities: `web.search`, `reader.preview`, `research.gather`, `browser.open`, and `llm.complete`.
 - A hand-coded Tears of the Kingdom research microapp loaded in a sandboxed iframe, with a natural-language Research Mode that expands queries, gathers a small corpus, and lets Claude answer from it on an explicit button press.
-- OS keychain-backed storage for the Anthropic API key.
+- OS keychain-backed storage for Anthropic and OpenRouter API keys plus the default LLM provider.
 
 Mobile, generator-backed regeneration, Git history management, and per-microapp SQLite stores are intentionally left for the next passes.
 
@@ -35,4 +35,9 @@ npm install
 npm run tauri dev
 ```
 
-`llm.complete` reads the Anthropic API key from the macOS keychain service `microapp-shell`, account `anthropic-api-key`. The app includes a small settings form to save it. For local debugging only, `ANTHROPIC_API_KEY` is also accepted by the Rust core.
+`llm.complete` reads the configured default provider from the macOS keychain service `microapp-shell`, account `default-llm-provider`, then uses the matching stored API key:
+
+- `anthropic-api-key` for Anthropic.
+- `openrouter-api-key` for OpenRouter.
+
+The shell Settings surface can save both keys and choose `anthropic` or `openrouter` as the default provider. For local debugging only, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_MODEL`, `OPENROUTER_MODEL`, and `DEFAULT_LLM_PROVIDER` are also accepted by the Rust core.

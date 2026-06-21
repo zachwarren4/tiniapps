@@ -24,7 +24,7 @@
 
 body { margin: 0; }
 
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 
 .app-shell {
   display: grid;
@@ -47,6 +47,13 @@ h1, h2 { margin: 0; }
 h1 { font-size: 24px; letter-spacing: -0.02em; color: var(--text-bright); }
 
 h2 { font-size: 14px; color: var(--text-bright); }
+
+.shell-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 12px;
+  align-items: start;
+}
 
 .eyebrow {
   color: var(--purple);
@@ -109,7 +116,8 @@ h2 { font-size: 14px; color: var(--text-bright); }
   background: var(--panel-alt);
 }
 
-input {
+input,
+select {
   border: 1px solid var(--border-muted);
   border-radius: 8px;
   background: var(--bg-darker);
@@ -132,6 +140,32 @@ button {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.icon-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+}
+
+.icon-button.active {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.settings-card {
+  gap: 9px;
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  margin-top: 2px;
+  text-transform: uppercase;
 }
 
 .status {

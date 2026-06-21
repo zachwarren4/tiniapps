@@ -30,3 +30,17 @@ export interface BrokerResponse<T = unknown> {
     message: string;
   };
 }
+
+export type LlmProvider = 'anthropic' | 'openrouter';
+
+export interface ShellSettings {
+  anthropicApiKeyStored: boolean;
+  openrouterApiKeyStored: boolean;
+  defaultLlmProvider: LlmProvider;
+}
+
+export interface SaveSettingsRequest {
+  anthropicApiKey?: string;
+  openrouterApiKey?: string;
+  defaultLlmProvider: LlmProvider;
+}

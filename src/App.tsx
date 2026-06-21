@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { totkLookupHtml, totkLookupManifest } from './microapps/totkLookup';
-import type { BrokerResponse, Capability, MicroappManifest } from './types';
+import type { BrokerResponse, Capability, LlmProvider, MicroappManifest, SaveSettingsRequest, ShellSettings } from './types';
 
 interface RuntimeMicroapp {
   manifest: MicroappManifest;
@@ -47,9 +47,13 @@ function isCapabilityMessage(value: unknown): value is CapabilityMessage {
 
 function App() {
   const [activeId, setActiveId] = useState(referenceApps[0].manifest.id);
-  const [apiKey, setApiKey] = useState('');
-  const [credentialReady, setCredentialReady] = useState<boolean | null>(null);
-  const [credentialMessage, setCredentialMessage] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<ShellSettings | null>(null);
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
+  const [openrouterApiKey, setOpenrouterApiKey] = useState('');
+  const [defaultLlmProvider, setDefaultLlmProvider] = useState<LlmProvider>('anthropic');
+  const [settingsMessage, setSettingsMessage] = useState('');
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [debugLog, setDebugLog] = useState<DebugLogEntry[]>([]);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -58,14 +62,15 @@ function App() {
     [activeId],
   );
 
-  const refreshCredentialStatus = useCallback(async () => {
-    const ready = await invoke<boolean>('credential_status', { account: 'anthropic-api-key' });
-    setCredentialReady(ready);
+  const refreshSettings = useCallback(async () => {
+    const nextSettings = await invoke<ShellSettings>('get_settings');
+    setSettings(nextSettings);
+    setDefaultLlmProvider(nextSettings.defaultLlmProvider);
   }, []);
 
   useEffect(() => {
-    void refreshCredentialStatus();
-  }, [refreshCredentialStatus]);
+    void refreshSettings();
+  }, [refreshSettings]);
 
   const addDebugLog = useCallback((level: DebugLogEntry['level'], message: string) => {
     setDebugLog((entries) => [
@@ -150,85 +155,137 @@ function App() {
     return () => window.removeEventListener('message', handleMessage);
   }, [activeApp, addDebugLog]);
 
-  async function saveAnthropicKey() {
-    if (!apiKey.trim()) return;
-    setCredentialMessage('Saving key to OS keychain...');
-    await invoke('save_credential', {
-      account: 'anthropic-api-key',
-      secret: apiKey.trim(),
-    });
-    setApiKey('');
-    setCredentialMessage('Anthropic key saved in the OS keychain.');
-    await refreshCredentialStatus();
+  async function saveSettings() {
+    setSettingsSaving(true);
+    setSettingsMessage('Saving settings to the OS keychain...');
+    try {
+      const payload: SaveSettingsRequest = {
+        defaultLlmProvider,
+      };
+      if (anthropicApiKey.trim()) payload.anthropicApiKey = anthropicApiKey.trim();
+      if (openrouterApiKey.trim()) payload.openrouterApiKey = openrouterApiKey.trim();
+
+      const nextSettings = await invoke<ShellSettings>('save_settings', { settings: payload });
+      setSettings(nextSettings);
+      setDefaultLlmProvider(nextSettings.defaultLlmProvider);
+      setAnthropicApiKey('');
+      setOpenrouterApiKey('');
+      setSettingsMessage('Settings saved.');
+    } catch (error) {
+      setSettingsMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSettingsSaving(false);
+    }
   }
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div>
-          <p className="eyebrow">Microapp Shell v0</p>
-          <h1>Registry</h1>
-          <p className="subtle">Reference fixtures live here for now. Generated microapps should become separate repos registered by path.</p>
+        <div className="shell-title">
+          <div>
+            <p className="eyebrow">Microapp Shell v0</p>
+            <h1>{settingsOpen ? 'Settings' : 'Registry'}</h1>
+            <p className="subtle">
+              {settingsOpen
+                ? 'Shell-owned credentials and provider defaults.'
+                : 'Reference fixtures live here for now. Generated microapps should become separate repos registered by path.'}
+            </p>
+          </div>
+          <button
+            className={settingsOpen ? 'icon-button active' : 'icon-button'}
+            type="button"
+            onClick={() => setSettingsOpen((open) => !open)}
+            title={settingsOpen ? 'Back to registry' : 'Open settings'}
+            aria-label={settingsOpen ? 'Back to registry' : 'Open settings'}
+          >
+            {settingsOpen ? '←' : '⚙'}
+          </button>
         </div>
 
-        <section className="card">
-          <h2>Installed Microapps</h2>
-          {referenceApps.map((app) => (
-            <button
-              className={app.manifest.id === activeId ? 'microapp active' : 'microapp'}
-              key={app.manifest.id}
-              onClick={() => setActiveId(app.manifest.id)}
+        {settingsOpen ? (
+          <section className="card settings-card">
+            <h2>LLM Broker</h2>
+            <p className={settings?.anthropicApiKeyStored ? 'status good' : 'status'}>
+              Anthropic key: {settings === null ? 'checking...' : settings.anthropicApiKeyStored ? 'stored' : 'missing'}
+            </p>
+            <input
+              value={anthropicApiKey}
+              onChange={(event) => setAnthropicApiKey(event.target.value)}
+              placeholder="sk-ant-..."
+              type="password"
+              autoComplete="off"
+            />
+            <p className={settings?.openrouterApiKeyStored ? 'status good' : 'status'}>
+              OpenRouter key: {settings === null ? 'checking...' : settings.openrouterApiKeyStored ? 'stored' : 'missing'}
+            </p>
+            <input
+              value={openrouterApiKey}
+              onChange={(event) => setOpenrouterApiKey(event.target.value)}
+              placeholder="sk-or-..."
+              type="password"
+              autoComplete="off"
+            />
+            <label className="field-label" htmlFor="default-provider">Default provider</label>
+            <select
+              id="default-provider"
+              value={defaultLlmProvider}
+              onChange={(event) => setDefaultLlmProvider(event.target.value as LlmProvider)}
             >
-              <span className="icon" aria-hidden="true">{app.manifest.icon}</span>
-              <span>
-                <strong>{app.manifest.name}</strong>
-                <small>{app.manifest.description}</small>
-              </span>
+              <option value="anthropic">Anthropic</option>
+              <option value="openrouter">OpenRouter</option>
+            </select>
+            <button onClick={saveSettings} disabled={settingsSaving}>
+              {settingsSaving ? 'Saving...' : 'Save Settings'}
             </button>
-          ))}
-        </section>
-
-        <section className="card">
-          <h2>Credentials</h2>
-          <p className={credentialReady ? 'status good' : 'status'}>
-            Anthropic key: {credentialReady === null ? 'checking...' : credentialReady ? 'stored' : 'missing'}
-          </p>
-          <input
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            placeholder="sk-ant-..."
-            type="password"
-          />
-          <button onClick={saveAnthropicKey} disabled={!apiKey.trim()}>Save Anthropic Key</button>
-          {credentialMessage && <p className="subtle">{credentialMessage}</p>}
-        </section>
-
-        <section className="card muted-actions">
-          <h2>Next Shell Actions</h2>
-          <button disabled>Create New</button>
-          <button disabled>Edit</button>
-          <button disabled>Delete</button>
-          <p className="subtle">These are placeholders until generator and git integration land.</p>
-        </section>
-
-        <section className="card debug-card">
-          <div className="card-heading">
-            <h2>Bridge Log</h2>
-            <button onClick={() => setDebugLog([])} disabled={debugLog.length === 0}>Clear</button>
-          </div>
-          {debugLog.length === 0 ? (
-            <p className="subtle">Capability requests will appear here.</p>
-          ) : (
-            <ol className="debug-log">
-              {debugLog.map((entry) => (
-                <li className={entry.level} key={entry.id}>
-                  <time>{entry.timestamp}</time>
-                  <span>{entry.message}</span>
-                </li>
+            {settingsMessage && <p className="subtle">{settingsMessage}</p>}
+          </section>
+        ) : (
+          <>
+            <section className="card">
+              <h2>Installed Microapps</h2>
+              {referenceApps.map((app) => (
+                <button
+                  className={app.manifest.id === activeId ? 'microapp active' : 'microapp'}
+                  key={app.manifest.id}
+                  onClick={() => setActiveId(app.manifest.id)}
+                >
+                  <span className="icon" aria-hidden="true">{app.manifest.icon}</span>
+                  <span>
+                    <strong>{app.manifest.name}</strong>
+                    <small>{app.manifest.description}</small>
+                  </span>
+                </button>
               ))}
-            </ol>
-          )}
-        </section>
+            </section>
+
+            <section className="card muted-actions">
+              <h2>Next Shell Actions</h2>
+              <button disabled>Create New</button>
+              <button disabled>Edit</button>
+              <button disabled>Delete</button>
+              <p className="subtle">These are placeholders until generator and git integration land.</p>
+            </section>
+
+            <section className="card debug-card">
+              <div className="card-heading">
+                <h2>Bridge Log</h2>
+                <button onClick={() => setDebugLog([])} disabled={debugLog.length === 0}>Clear</button>
+              </div>
+              {debugLog.length === 0 ? (
+                <p className="subtle">Capability requests will appear here.</p>
+              ) : (
+                <ol className="debug-log">
+                  {debugLog.map((entry) => (
+                    <li className={entry.level} key={entry.id}>
+                      <time>{entry.timestamp}</time>
+                      <span>{entry.message}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          </>
+        )}
       </aside>
 
       <main className="workspace">
