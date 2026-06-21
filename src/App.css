@@ -24,7 +24,7 @@
 
 body { margin: 0; }
 
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 
 .app-shell {
   display: grid;

@@ -35,4 +35,9 @@ npm install
 npm run tauri dev
 ```
 
-`llm.complete` reads the Anthropic API key from the macOS keychain service `microapp-shell`, account `anthropic-api-key`. The app includes a small settings form to save it. For local debugging only, `ANTHROPIC_API_KEY` is also accepted by the Rust core.
+`llm.complete` reads the configured default provider from the macOS keychain service `microapp-shell`, account `default-llm-provider`, then uses the matching stored API key:
+
+- `anthropic-api-key` for Anthropic.
+- `openrouter-api-key` for OpenRouter.
+
+The shell Settings surface can save both keys and choose `anthropic` or `openrouter` as the default provider. For local debugging only, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_MODEL`, `OPENROUTER_MODEL`, and `DEFAULT_LLM_PROVIDER` are also accepted by the Rust core.

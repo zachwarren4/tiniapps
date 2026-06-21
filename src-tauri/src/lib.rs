@@ -9,7 +9,11 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use url::Url;
 
 const KEYCHAIN_SERVICE: &str = "microapp-shell";
+const ANTHROPIC_API_KEY_ACCOUNT: &str = "anthropic-api-key";
+const OPENROUTER_API_KEY_ACCOUNT: &str = "openrouter-api-key";
+const DEFAULT_LLM_PROVIDER_ACCOUNT: &str = "default-llm-provider";
 const DEFAULT_ANTHROPIC_MODEL: &str = "claude-sonnet-4-6";
+const DEFAULT_OPENROUTER_MODEL: &str = "anthropic/claude-sonnet-4";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -158,6 +162,29 @@ struct LlmCompletePayload {
     model: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum LlmProvider {
+    Anthropic,
+    Openrouter,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveSettingsRequest {
+    anthropic_api_key: Option<String>,
+    openrouter_api_key: Option<String>,
+    default_llm_provider: LlmProvider,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsResponse {
+    anthropic_api_key_stored: bool,
+    openrouter_api_key_stored: bool,
+    default_llm_provider: LlmProvider,
+}
+
 #[derive(Debug, Deserialize)]
 struct AnthropicResponse {
     content: Vec<AnthropicContent>,
@@ -168,6 +195,21 @@ struct AnthropicContent {
     #[serde(rename = "type")]
     kind: String,
     text: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenRouterResponse {
+    choices: Vec<OpenRouterChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenRouterChoice {
+    message: OpenRouterMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenRouterMessage {
+    content: Option<String>,
 }
 
 #[tauri::command]
@@ -254,6 +296,49 @@ fn save_credential(account: String, secret: String) -> Result<(), String> {
 #[tauri::command]
 fn credential_status(account: String) -> bool {
     read_keychain_secret(&account).is_ok()
+}
+
+#[tauri::command]
+fn get_settings() -> SettingsResponse {
+    SettingsResponse {
+        anthropic_api_key_stored: credential_is_available(
+            ANTHROPIC_API_KEY_ACCOUNT,
+            "ANTHROPIC_API_KEY",
+        ),
+        openrouter_api_key_stored: credential_is_available(
+            OPENROUTER_API_KEY_ACCOUNT,
+            "OPENROUTER_API_KEY",
+        ),
+        default_llm_provider: read_default_llm_provider(),
+    }
+}
+
+#[tauri::command]
+fn save_settings(settings: SaveSettingsRequest) -> Result<SettingsResponse, String> {
+    if let Some(secret) = settings
+        .anthropic_api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|secret| !secret.is_empty())
+    {
+        write_keychain_secret(ANTHROPIC_API_KEY_ACCOUNT, secret)?;
+    }
+
+    if let Some(secret) = settings
+        .openrouter_api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|secret| !secret.is_empty())
+    {
+        write_keychain_secret(OPENROUTER_API_KEY_ACCOUNT, secret)?;
+    }
+
+    write_keychain_secret(
+        DEFAULT_LLM_PROVIDER_ACCOUNT,
+        settings.default_llm_provider.as_str(),
+    )?;
+
+    Ok(get_settings())
 }
 
 async fn web_search(payload: Value) -> Result<Value, String> {
@@ -843,8 +928,14 @@ fn html_fragment_text(fragment: &str) -> String {
 async fn llm_complete(payload: Value) -> Result<Value, String> {
     let payload: LlmCompletePayload =
         serde_json::from_value(payload).map_err(|error| error.to_string())?;
-    let api_key = read_keychain_secret("anthropic-api-key")
-        .or_else(|_| std::env::var("ANTHROPIC_API_KEY").map_err(|error| error.to_string()))?;
+    match read_default_llm_provider() {
+        LlmProvider::Anthropic => anthropic_complete(payload).await,
+        LlmProvider::Openrouter => openrouter_complete(payload).await,
+    }
+}
+
+async fn anthropic_complete(payload: LlmCompletePayload) -> Result<Value, String> {
+    let api_key = read_required_secret(ANTHROPIC_API_KEY_ACCOUNT, "ANTHROPIC_API_KEY")?;
     let model = payload
         .model
         .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
@@ -885,6 +976,7 @@ async fn llm_complete(payload: Value) -> Result<Value, String> {
         .join("\n\n");
 
     Ok(json!({
+        "provider": LlmProvider::Anthropic,
         "model": model,
         "text": text,
     }))
@@ -1164,8 +1256,45 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             broker_request,
             save_credential,
-            credential_status
+            credential_status,
+            get_settings,
+            save_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running Microapp Shell");
+}
+
+impl LlmProvider {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "anthropic" => Some(Self::Anthropic),
+            "openrouter" => Some(Self::Openrouter),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Anthropic => "anthropic",
+            Self::Openrouter => "openrouter",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn llm_provider_parse_supports_brokered_providers() {
+        assert_eq!(
+            LlmProvider::parse("anthropic"),
+            Some(LlmProvider::Anthropic)
+        );
+        assert_eq!(
+            LlmProvider::parse("OpenRouter"),
+            Some(LlmProvider::Openrouter)
+        );
+        assert_eq!(LlmProvider::parse(" unknown "), None);
+    }
 }

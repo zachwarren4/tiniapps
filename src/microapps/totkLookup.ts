@@ -522,7 +522,7 @@ export const totkLookupHtml = String.raw`<!doctype html>
       summarizeButton.addEventListener('click', async () => {
         summarizeButton.disabled = true;
         summaryEl.className = 'muted';
-        summaryEl.textContent = 'Asking Claude through shell broker...';
+        summaryEl.textContent = 'Asking the configured LLM through shell broker...';
         try {
           const prompt = 'You are helping with The Legend of Zelda: Tears of the Kingdom. The user searched for: ' + latestSearchQuery + '. Summarize the indexed search results for a player. Group useful findings by source where helpful, cite uncertainty, and do not invent facts. Keep it concise and actionable.\n\n' + JSON.stringify(latestResults, null, 2);
           const data = await requestCapability('llm.complete', { prompt, maxTokens: 900 });
