@@ -3,8 +3,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use url::Url;
 
@@ -339,6 +342,74 @@ fn save_settings(settings: SaveSettingsRequest) -> Result<SettingsResponse, Stri
     )?;
 
     Ok(get_settings())
+}
+
+#[tauri::command]
+fn read_notes(app: AppHandle, microapp_id: String) -> Result<String, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    read_notes_from_base(&app_data_dir, &microapp_id)
+}
+
+#[tauri::command]
+fn write_notes(app: AppHandle, microapp_id: String, content: String) -> Result<(), String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    write_notes_to_base(&app_data_dir, &microapp_id, &content)
+}
+
+fn read_notes_from_base(base_dir: &Path, microapp_id: &str) -> Result<String, String> {
+    let path = notes_file_path(base_dir, microapp_id)?;
+    match fs::read_to_string(&path) {
+        Ok(content) => Ok(content),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn write_notes_to_base(base_dir: &Path, microapp_id: &str, content: &str) -> Result<(), String> {
+    let path = notes_file_path(base_dir, microapp_id)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Notes path does not have a parent directory".to_string())?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+
+    let temp_path = path.with_extension(format!(
+        "md.tmp-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_nanos()
+    ));
+    fs::write(&temp_path, content).map_err(|error| error.to_string())?;
+    fs::rename(&temp_path, &path).map_err(|error| {
+        let _ = fs::remove_file(&temp_path);
+        error.to_string()
+    })
+}
+
+fn notes_file_path(base_dir: &Path, microapp_id: &str) -> Result<PathBuf, String> {
+    validate_microapp_id(microapp_id)?;
+    Ok(base_dir.join("notes").join(format!("{microapp_id}.md")))
+}
+
+fn validate_microapp_id(microapp_id: &str) -> Result<(), String> {
+    if microapp_id.is_empty() {
+        return Err("microapp_id cannot be empty".to_string());
+    }
+    if microapp_id
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        Ok(())
+    } else {
+        Err("microapp_id may only contain ASCII letters, numbers, `_`, and `-`".to_string())
+    }
 }
 
 async fn web_search(payload: Value) -> Result<Value, String> {
@@ -982,6 +1053,55 @@ async fn anthropic_complete(payload: LlmCompletePayload) -> Result<Value, String
     }))
 }
 
+async fn openrouter_complete(payload: LlmCompletePayload) -> Result<Value, String> {
+    let api_key = read_required_secret(OPENROUTER_API_KEY_ACCOUNT, "OPENROUTER_API_KEY")?;
+    let model = payload
+        .model
+        .or_else(|| std::env::var("OPENROUTER_MODEL").ok())
+        .unwrap_or_else(|| DEFAULT_OPENROUTER_MODEL.to_string());
+
+    let mut messages = Vec::new();
+    if let Some(system) = payload.system {
+        messages.push(json!({ "role": "system", "content": system }));
+    }
+    messages.push(json!({ "role": "user", "content": payload.prompt }));
+
+    let body = json!({
+        "model": model,
+        "max_tokens": payload.max_tokens.unwrap_or(700).clamp(1, 4000),
+        "messages": messages,
+    });
+
+    let response: OpenRouterResponse = reqwest::Client::new()
+        .post("https://openrouter.ai/api/v1/chat/completions")
+        .header("authorization", format!("Bearer {api_key}"))
+        .header("content-type", "application/json")
+        .header("http-referer", "https://tiniapps.local")
+        .header("x-title", "tiniapps")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let text = response
+        .choices
+        .into_iter()
+        .filter_map(|choice| choice.message.content)
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    Ok(json!({
+        "provider": LlmProvider::Openrouter,
+        "model": model,
+        "text": text,
+    }))
+}
+
 async fn browser_open(app: &AppHandle, microapp_id: &str, payload: Value) -> Result<Value, String> {
     let payload: BrowserOpenPayload =
         serde_json::from_value(payload).map_err(|error| error.to_string())?;
@@ -1229,6 +1349,21 @@ fn read_optional_secret(account: &str, env_var: &str) -> Option<String> {
         .filter(|value| !value.trim().is_empty())
 }
 
+fn read_required_secret(account: &str, env_var: &str) -> Result<String, String> {
+    read_optional_secret(account, env_var)
+        .ok_or_else(|| format!("Missing credential `{account}`. Save it in Settings."))
+}
+
+fn credential_is_available(account: &str, env_var: &str) -> bool {
+    read_optional_secret(account, env_var).is_some()
+}
+
+fn read_default_llm_provider() -> LlmProvider {
+    read_optional_secret(DEFAULT_LLM_PROVIDER_ACCOUNT, "DEFAULT_LLM_PROVIDER")
+        .and_then(|value| LlmProvider::parse(&value))
+        .unwrap_or(LlmProvider::Anthropic)
+}
+
 fn write_keychain_secret(account: &str, secret: &str) -> Result<(), String> {
     let status = Command::new("security")
         .args([
@@ -1258,7 +1393,9 @@ pub fn run() {
             save_credential,
             credential_status,
             get_settings,
-            save_settings
+            save_settings,
+            read_notes,
+            write_notes
         ])
         .run(tauri::generate_context!())
         .expect("error while running Microapp Shell");
@@ -1296,5 +1433,49 @@ mod tests {
             Some(LlmProvider::Openrouter)
         );
         assert_eq!(LlmProvider::parse(" unknown "), None);
+    }
+
+    #[test]
+    fn notes_round_trip_is_scoped_by_microapp_id() {
+        let base_dir = std::env::temp_dir().join(format!(
+            "microapp-shell-notes-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock should be after unix epoch")
+                .as_nanos()
+        ));
+
+        assert_eq!(
+            read_notes_from_base(&base_dir, "totk-lookup-reference").unwrap(),
+            ""
+        );
+
+        write_notes_to_base(
+            &base_dir,
+            "totk-lookup-reference",
+            "# Labyrinths\nBring food.",
+        )
+        .unwrap();
+        write_notes_to_base(&base_dir, "spanish_drills", "verbs").unwrap();
+
+        assert_eq!(
+            read_notes_from_base(&base_dir, "totk-lookup-reference").unwrap(),
+            "# Labyrinths\nBring food."
+        );
+        assert_eq!(
+            read_notes_from_base(&base_dir, "spanish_drills").unwrap(),
+            "verbs"
+        );
+
+        let _ = fs::remove_dir_all(base_dir);
+    }
+
+    #[test]
+    fn notes_reject_path_traversal_ids() {
+        assert!(validate_microapp_id("totk-lookup_reference-1").is_ok());
+        assert!(validate_microapp_id("../totk").is_err());
+        assert!(validate_microapp_id("totk/lookup").is_err());
+        assert!(validate_microapp_id("").is_err());
     }
 }

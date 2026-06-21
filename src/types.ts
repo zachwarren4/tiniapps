@@ -44,3 +44,12 @@ export interface SaveSettingsRequest {
   openrouterApiKey?: string;
   defaultLlmProvider: LlmProvider;
 }
+
+export interface ReadNotesRequest extends Record<string, unknown> {
+  microappId: string;
+}
+
+export interface WriteNotesRequest extends Record<string, unknown> {
+  microappId: string;
+  content: string;
+}
