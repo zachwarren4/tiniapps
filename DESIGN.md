@@ -52,10 +52,17 @@ A capability should be added when it represents a narrow, auditable boundary bet
 
 ### V0 Capabilities
 
-- `web.search`: query web search through the shell and return normalized results.
+- `web.search`: query search providers through the shell and return normalized results. The first reference app supports source-scoped query transforms for general web, YouTube, Reddit, and Zelda wiki results. If Google Custom Search credentials are present in the shell keychain, they are the preferred generic provider; source APIs and DDG Lite remain fallbacks.
+- `reader.preview`: fetch a readable extract (title plus paragraphs) for a single result URL through the shell, so a microapp can render preview text without raw network access.
+- `research.gather`: higher-level capability that expands a natural-language query into TOTK-scoped per-source searches, gathers a capped corpus of `{ source, title, url, snippet, preview }` entries, and returns it alongside the expanded queries the shell actually used. Reuses the `web.search` provider chain and `reader.preview` extractors under the hood.
 - `llm.complete`: explicit one-shot LLM completion through the shell using the shell-held Anthropic key.
+- `browser.open`: open an `http` or `https` result URL in a shell-owned Tauri webview window for the active microapp context.
 
-Deferred: `external.fetch`, `clip.save`, `clip.search`, `storage.get`, `storage.set`, `gmail.search`, `gmail.read`, `youtube.search`.
+For v0, isolation is mainly contextual: the goal is to keep a microapp's searches, result browsing, and summaries in its own surface instead of the general browser. Credentials and shell APIs still stay behind the broker.
+
+The generic pattern to prove is provider indirection: microapps ask for a source like `reddit` or `youtube`, while the shell decides whether that means Google Custom Search, a native API, a static index, or a fallback web search.
+
+Deferred: `external.fetch`, `reader.extract`, `clip.save`, `clip.search`, `storage.get`, `storage.set`, `gmail.search`, `gmail.read`, `youtube.search`.
 
 ### Clip Store Direction
 
