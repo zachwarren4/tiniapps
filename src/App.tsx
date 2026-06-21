@@ -15,6 +15,13 @@ interface CapabilityMessage {
   payload: unknown;
 }
 
+interface DebugLogEntry {
+  id: number;
+  timestamp: string;
+  level: 'info' | 'error';
+  message: string;
+}
+
 const referenceApps: RuntimeMicroapp[] = [
   {
     manifest: totkLookupManifest,
@@ -28,7 +35,13 @@ function isCapabilityMessage(value: unknown): value is CapabilityMessage {
   return (
     candidate.type === 'microapp.capability.request' &&
     typeof candidate.requestId === 'string' &&
-    (candidate.capability === 'web.search' || candidate.capability === 'llm.complete')
+    (
+      candidate.capability === 'web.search' ||
+      candidate.capability === 'llm.complete' ||
+      candidate.capability === 'browser.open' ||
+      candidate.capability === 'reader.preview' ||
+      candidate.capability === 'research.gather'
+    )
   );
 }
 
@@ -37,6 +50,7 @@ function App() {
   const [apiKey, setApiKey] = useState('');
   const [credentialReady, setCredentialReady] = useState<boolean | null>(null);
   const [credentialMessage, setCredentialMessage] = useState('');
+  const [debugLog, setDebugLog] = useState<DebugLogEntry[]>([]);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const activeApp = useMemo(
@@ -53,13 +67,27 @@ function App() {
     void refreshCredentialStatus();
   }, [refreshCredentialStatus]);
 
+  const addDebugLog = useCallback((level: DebugLogEntry['level'], message: string) => {
+    setDebugLog((entries) => [
+      {
+        id: Date.now() + Math.random(),
+        timestamp: new Date().toLocaleTimeString(),
+        level,
+        message,
+      },
+      ...entries,
+    ].slice(0, 24));
+  }, []);
+
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow || !isCapabilityMessage(event.data)) return;
 
       const message = event.data;
       const manifest = activeApp.manifest;
+      addDebugLog('info', `${manifest.name} -> ${message.capability}`);
       if (!manifest.capabilities.includes(message.capability)) {
+        addDebugLog('error', `${manifest.name} denied ${message.capability}`);
         iframeRef.current?.contentWindow?.postMessage(
           {
             type: 'microapp.capability.response',
@@ -84,6 +112,13 @@ function App() {
           },
         });
 
+        addDebugLog(
+          response.ok ? 'info' : 'error',
+          response.ok
+            ? `${message.capability} ok`
+            : `${message.capability} failed: ${response.error?.message ?? response.error?.code ?? 'unknown error'}`,
+        );
+
         iframeRef.current?.contentWindow?.postMessage(
           {
             type: 'microapp.capability.response',
@@ -95,6 +130,7 @@ function App() {
           '*',
         );
       } catch (error) {
+        addDebugLog('error', `${message.capability} crashed: ${error instanceof Error ? error.message : String(error)}`);
         iframeRef.current?.contentWindow?.postMessage(
           {
             type: 'microapp.capability.response',
@@ -112,7 +148,7 @@ function App() {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [activeApp]);
+  }, [activeApp, addDebugLog]);
 
   async function saveAnthropicKey() {
     if (!apiKey.trim()) return;
@@ -173,6 +209,25 @@ function App() {
           <button disabled>Edit</button>
           <button disabled>Delete</button>
           <p className="subtle">These are placeholders until generator and git integration land.</p>
+        </section>
+
+        <section className="card debug-card">
+          <div className="card-heading">
+            <h2>Bridge Log</h2>
+            <button onClick={() => setDebugLog([])} disabled={debugLog.length === 0}>Clear</button>
+          </div>
+          {debugLog.length === 0 ? (
+            <p className="subtle">Capability requests will appear here.</p>
+          ) : (
+            <ol className="debug-log">
+              {debugLog.map((entry) => (
+                <li className={entry.level} key={entry.id}>
+                  <time>{entry.timestamp}</time>
+                  <span>{entry.message}</span>
+                </li>
+              ))}
+            </ol>
+          )}
         </section>
       </aside>
 

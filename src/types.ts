@@ -1,4 +1,9 @@
-export type Capability = 'web.search' | 'llm.complete';
+export type Capability =
+  | 'web.search'
+  | 'llm.complete'
+  | 'browser.open'
+  | 'reader.preview'
+  | 'research.gather';
 
 export interface MicroappManifest {
   id: string;

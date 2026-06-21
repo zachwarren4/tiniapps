@@ -6,8 +6,8 @@ A personal desktop shell for small, isolated, single-purpose microapps. The shel
 
 - Tauri desktop app with a React/TypeScript frontend.
 - Rust capability broker in the trusted Tauri core.
-- Two end-to-end capabilities: `web.search` and `llm.complete`.
-- A hand-coded Tears of the Kingdom lookup microapp loaded in a sandboxed iframe.
+- End-to-end capabilities: `web.search`, `reader.preview`, `research.gather`, `browser.open`, and `llm.complete`.
+- A hand-coded Tears of the Kingdom research microapp loaded in a sandboxed iframe, with a natural-language Research Mode that expands queries, gathers a small corpus, and lets Claude answer from it on an explicit button press.
 - OS keychain-backed storage for the Anthropic API key.
 
 Mobile, generator-backed regeneration, Git history management, and per-microapp SQLite stores are intentionally left for the next passes.
