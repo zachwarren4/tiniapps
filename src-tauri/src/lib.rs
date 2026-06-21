@@ -982,55 +982,6 @@ async fn anthropic_complete(payload: LlmCompletePayload) -> Result<Value, String
     }))
 }
 
-async fn openrouter_complete(payload: LlmCompletePayload) -> Result<Value, String> {
-    let api_key = read_required_secret(OPENROUTER_API_KEY_ACCOUNT, "OPENROUTER_API_KEY")?;
-    let model = payload
-        .model
-        .or_else(|| std::env::var("OPENROUTER_MODEL").ok())
-        .unwrap_or_else(|| DEFAULT_OPENROUTER_MODEL.to_string());
-
-    let mut messages = Vec::new();
-    if let Some(system) = payload.system {
-        messages.push(json!({ "role": "system", "content": system }));
-    }
-    messages.push(json!({ "role": "user", "content": payload.prompt }));
-
-    let body = json!({
-        "model": model,
-        "max_tokens": payload.max_tokens.unwrap_or(700).clamp(1, 4000),
-        "messages": messages,
-    });
-
-    let response: OpenRouterResponse = reqwest::Client::new()
-        .post("https://openrouter.ai/api/v1/chat/completions")
-        .header("authorization", format!("Bearer {api_key}"))
-        .header("content-type", "application/json")
-        .header("http-referer", "https://tiniapps.local")
-        .header("x-title", "tiniapps")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|error| error.to_string())?
-        .error_for_status()
-        .map_err(|error| error.to_string())?
-        .json()
-        .await
-        .map_err(|error| error.to_string())?;
-
-    let text = response
-        .choices
-        .into_iter()
-        .filter_map(|choice| choice.message.content)
-        .collect::<Vec<_>>()
-        .join("\n\n");
-
-    Ok(json!({
-        "provider": LlmProvider::Openrouter,
-        "model": model,
-        "text": text,
-    }))
-}
-
 async fn browser_open(app: &AppHandle, microapp_id: &str, payload: Value) -> Result<Value, String> {
     let payload: BrowserOpenPayload =
         serde_json::from_value(payload).map_err(|error| error.to_string())?;
@@ -1276,21 +1227,6 @@ fn read_optional_secret(account: &str, env_var: &str) -> Option<String> {
         .ok()
         .or_else(|| std::env::var(env_var).ok())
         .filter(|value| !value.trim().is_empty())
-}
-
-fn read_required_secret(account: &str, env_var: &str) -> Result<String, String> {
-    read_optional_secret(account, env_var)
-        .ok_or_else(|| format!("Missing credential `{account}`. Save it in Settings."))
-}
-
-fn credential_is_available(account: &str, env_var: &str) -> bool {
-    read_optional_secret(account, env_var).is_some()
-}
-
-fn read_default_llm_provider() -> LlmProvider {
-    read_optional_secret(DEFAULT_LLM_PROVIDER_ACCOUNT, "DEFAULT_LLM_PROVIDER")
-        .and_then(|value| LlmProvider::parse(&value))
-        .unwrap_or(LlmProvider::Anthropic)
 }
 
 fn write_keychain_secret(account: &str, secret: &str) -> Result<(), String> {

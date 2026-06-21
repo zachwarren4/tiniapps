@@ -105,7 +105,7 @@ export const totkLookupHtml = String.raw`<!doctype html>
   <body>
     <main>
       <h1>TOTK Research</h1>
-      <p>Ask a natural-language question. The shell expands it into Tears of the Kingdom searches across the web, YouTube, Reddit, and the Zelda wiki, gathers a small corpus of source-scoped previews, and lets the shell broker answer from that corpus on an explicit press.</p>
+      <p>Ask a natural-language question. The shell expands it into Tears of the Kingdom searches across the web, YouTube, Reddit, and the Zelda wiki, gathers a small corpus of source-scoped previews, and lets Claude answer from that corpus on an explicit press.</p>
 
       <nav class="tabs" role="tablist">
         <button type="button" data-mode="research" class="active" role="tab">Research</button>
@@ -144,7 +144,7 @@ export const totkLookupHtml = String.raw`<!doctype html>
             <section class="panel answer-panel">
               <div>
                 <h2>Answer From Corpus</h2>
-                <p class="muted">Synthesizes the gathered corpus through the shell LLM broker. Explicit button press, no ambient calls.</p>
+                <p class="muted">Synthesizes the gathered corpus with Claude. Explicit button press, no ambient calls.</p>
               </div>
               <button id="answer-button" class="secondary" disabled>Answer From Corpus</button>
               <div id="answer" class="muted">Gather a corpus first.</div>
@@ -408,7 +408,7 @@ export const totkLookupHtml = String.raw`<!doctype html>
         if (!latestCorpus.length) return;
         answerButton.disabled = true;
         answerEl.className = 'muted';
-        answerEl.textContent = 'Asking the configured LLM through shell broker...';
+        answerEl.textContent = 'Asking Claude through shell broker...';
         try {
           const prompt = buildCorpusPrompt(latestResearchQuery, latestCorpus);
           const data = await requestCapability('llm.complete', { prompt, maxTokens: 1200 });

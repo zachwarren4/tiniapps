@@ -102,46 +102,9 @@ Response:
 
 ### `llm.complete`
 
-Runs an explicit one-shot LLM completion through the shell-held credential for the configured default provider. Microapps do not receive API keys and do not choose the provider.
+Runs an explicit one-shot LLM completion through the shell-held Anthropic credential. Microapps do not receive the API key.
 
-The shell Settings surface stores:
-
-- `anthropic-api-key` in the OS keychain for the Anthropic Messages API.
-- `openrouter-api-key` in the OS keychain for OpenRouter `chat/completions`.
-- `default-llm-provider` in the same keychain service, with `anthropic` as the fallback when unset.
-
-The TOTK reference app calls `llm.complete` with a prompt that wraps the gathered corpus, so the configured model answers from sources the user can see in the UI rather than from open-ended browsing. Existing Anthropic behavior is unchanged when the default provider is `anthropic`; when it is `openrouter`, the broker posts to `https://openrouter.ai/api/v1/chat/completions` with the stored OpenRouter key.
-
-Payload:
-
-```json
-{
-  "prompt": "Answer from this corpus...",
-  "system": "Optional system instruction",
-  "maxTokens": 1200,
-  "model": "optional-provider-specific-model-id"
-}
-```
-
-Response:
-
-```json
-{
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-6",
-  "text": "..."
-}
-```
-
-`provider` is either `anthropic` or `openrouter`.
-
-## Shell Commands
-
-These Tauri commands are shell-only configuration APIs, not microapp bridge capabilities:
-
-- `get_settings`: returns `{ anthropicApiKeyStored, openrouterApiKeyStored, defaultLlmProvider }`.
-- `save_settings`: accepts optional replacement key fields plus `defaultLlmProvider`; non-empty key fields are written to the OS keychain.
-- `save_credential` / `credential_status`: legacy generic keychain helpers retained for compatibility.
+The TOTK reference app calls `llm.complete` with a prompt that wraps the gathered corpus, so the model answers from sources the user can see in the UI rather than from open-ended browsing.
 
 ## Response
 

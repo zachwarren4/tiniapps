@@ -47,13 +47,9 @@ function isCapabilityMessage(value: unknown): value is CapabilityMessage {
 
 function App() {
   const [activeId, setActiveId] = useState(referenceApps[0].manifest.id);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState<ShellSettings | null>(null);
-  const [anthropicApiKey, setAnthropicApiKey] = useState('');
-  const [openrouterApiKey, setOpenrouterApiKey] = useState('');
-  const [defaultLlmProvider, setDefaultLlmProvider] = useState<LlmProvider>('anthropic');
-  const [settingsMessage, setSettingsMessage] = useState('');
-  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [credentialReady, setCredentialReady] = useState<boolean | null>(null);
+  const [credentialMessage, setCredentialMessage] = useState('');
   const [debugLog, setDebugLog] = useState<DebugLogEntry[]>([]);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -71,6 +67,18 @@ function App() {
   useEffect(() => {
     void refreshSettings();
   }, [refreshSettings]);
+
+  const addDebugLog = useCallback((level: DebugLogEntry['level'], message: string) => {
+    setDebugLog((entries) => [
+      {
+        id: Date.now() + Math.random(),
+        timestamp: new Date().toLocaleTimeString(),
+        level,
+        message,
+      },
+      ...entries,
+    ].slice(0, 24));
+  }, []);
 
   const addDebugLog = useCallback((level: DebugLogEntry['level'], message: string) => {
     setDebugLog((entries) => [
@@ -266,26 +274,32 @@ function App() {
               <p className="subtle">These are placeholders until generator and git integration land.</p>
             </section>
 
-            <section className="card debug-card">
-              <div className="card-heading">
-                <h2>Bridge Log</h2>
-                <button onClick={() => setDebugLog([])} disabled={debugLog.length === 0}>Clear</button>
-              </div>
-              {debugLog.length === 0 ? (
-                <p className="subtle">Capability requests will appear here.</p>
-              ) : (
-                <ol className="debug-log">
-                  {debugLog.map((entry) => (
-                    <li className={entry.level} key={entry.id}>
-                      <time>{entry.timestamp}</time>
-                      <span>{entry.message}</span>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </section>
-          </>
-        )}
+        <section className="card muted-actions">
+          <h2>Next Shell Actions</h2>
+          <button disabled>Create New</button>
+          <button disabled>Edit</button>
+          <button disabled>Delete</button>
+          <p className="subtle">These are placeholders until generator and git integration land.</p>
+        </section>
+
+        <section className="card debug-card">
+          <div className="card-heading">
+            <h2>Bridge Log</h2>
+            <button onClick={() => setDebugLog([])} disabled={debugLog.length === 0}>Clear</button>
+          </div>
+          {debugLog.length === 0 ? (
+            <p className="subtle">Capability requests will appear here.</p>
+          ) : (
+            <ol className="debug-log">
+              {debugLog.map((entry) => (
+                <li className={entry.level} key={entry.id}>
+                  <time>{entry.timestamp}</time>
+                  <span>{entry.message}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
       </aside>
 
       <main className="workspace">
