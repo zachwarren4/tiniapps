@@ -104,7 +104,48 @@ Response:
 
 Runs an explicit one-shot LLM completion through the shell-held Anthropic credential. Microapps do not receive the API key.
 
-The TOTK reference app calls `llm.complete` with a prompt that wraps the gathered corpus, so the model answers from sources the user can see in the UI rather than from open-ended browsing.
+The shell Settings surface stores:
+
+- `anthropic-api-key` in the OS keychain for the Anthropic Messages API.
+- `openrouter-api-key` in the OS keychain for OpenRouter `chat/completions`.
+- `default-llm-provider` in the same keychain service, with `anthropic` as the fallback when unset.
+
+The TOTK reference app calls `llm.complete` with a prompt that wraps the gathered corpus, so the configured model answers from sources the user can see in the UI rather than from open-ended browsing. Existing Anthropic behavior is unchanged when the default provider is `anthropic`; when it is `openrouter`, the broker posts to `https://openrouter.ai/api/v1/chat/completions` with the stored OpenRouter key.
+
+Payload:
+
+```json
+{
+  "prompt": "Answer from this corpus...",
+  "system": "Optional system instruction",
+  "maxTokens": 1200,
+  "model": "optional-provider-specific-model-id"
+}
+```
+
+Response:
+
+```json
+{
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6",
+  "text": "..."
+}
+```
+
+`provider` is either `anthropic` or `openrouter`.
+
+## Shell Commands
+
+These Tauri commands are shell-only configuration APIs, not microapp bridge capabilities:
+
+- `get_settings`: returns `{ anthropicApiKeyStored, openrouterApiKeyStored, defaultLlmProvider }`.
+- `save_settings`: accepts optional replacement key fields plus `defaultLlmProvider`; non-empty key fields are written to the OS keychain.
+- `read_notes`: accepts `{ microappId }` and returns the active microapp's markdown notes content from the shell app data directory, or an empty string when no notes file exists yet.
+- `write_notes`: accepts `{ microappId, content }` and writes the active microapp's markdown notes content to the shell app data directory.
+- `save_credential` / `credential_status`: legacy generic keychain helpers retained for compatibility.
+
+Notes are stored by the shell under `notes/<microapp_id>.md`. The shell validates microapp IDs before resolving paths; IDs may contain only ASCII letters, numbers, `_`, and `-`.
 
 ## Response
 

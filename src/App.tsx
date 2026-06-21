@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { totkLookupHtml, totkLookupManifest } from './microapps/totkLookup';
-import type { BrokerResponse, Capability, LlmProvider, MicroappManifest, SaveSettingsRequest, ShellSettings } from './types';
+import type {
+  BrokerResponse,
+  Capability,
+  LlmProvider,
+  MicroappManifest,
+  SaveSettingsRequest,
+  ShellSettings,
+  ReadNotesRequest,
+  WriteNotesRequest,
+} from './types';
 
 interface RuntimeMicroapp {
   manifest: MicroappManifest;
@@ -21,6 +30,8 @@ interface DebugLogEntry {
   level: 'info' | 'error';
   message: string;
 }
+
+type NotesSaveStatus = 'Saved' | 'Saving…' | 'Unsaved';
 
 const referenceApps: RuntimeMicroapp[] = [
   {
@@ -47,10 +58,19 @@ function isCapabilityMessage(value: unknown): value is CapabilityMessage {
 
 function App() {
   const [activeId, setActiveId] = useState(referenceApps[0].manifest.id);
-  const [apiKey, setApiKey] = useState('');
-  const [credentialReady, setCredentialReady] = useState<boolean | null>(null);
-  const [credentialMessage, setCredentialMessage] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<ShellSettings | null>(null);
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
+  const [openrouterApiKey, setOpenrouterApiKey] = useState('');
+  const [defaultLlmProvider, setDefaultLlmProvider] = useState<LlmProvider>('anthropic');
+  const [settingsMessage, setSettingsMessage] = useState('');
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [debugLog, setDebugLog] = useState<DebugLogEntry[]>([]);
+  const [notesOpen, setNotesOpen] = useState(true);
+  const [notesContent, setNotesContent] = useState('');
+  const [lastSavedNotes, setLastSavedNotes] = useState('');
+  const [notesStatus, setNotesStatus] = useState<NotesSaveStatus>('Saved');
+  const [notesError, setNotesError] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const activeApp = useMemo(
@@ -68,17 +88,31 @@ function App() {
     void refreshSettings();
   }, [refreshSettings]);
 
-  const addDebugLog = useCallback((level: DebugLogEntry['level'], message: string) => {
-    setDebugLog((entries) => [
-      {
-        id: Date.now() + Math.random(),
-        timestamp: new Date().toLocaleTimeString(),
-        level,
-        message,
-      },
-      ...entries,
-    ].slice(0, 24));
-  }, []);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNotes() {
+      setNotesError('');
+      setNotesStatus('Saving…');
+      try {
+        const payload: ReadNotesRequest = { microappId: activeApp.manifest.id };
+        const content = await invoke<string>('read_notes', payload);
+        if (cancelled) return;
+        setNotesContent(content);
+        setLastSavedNotes(content);
+        setNotesStatus('Saved');
+      } catch (error) {
+        if (cancelled) return;
+        setNotesError(error instanceof Error ? error.message : String(error));
+        setNotesStatus('Unsaved');
+      }
+    }
+
+    void loadNotes();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeApp.manifest.id]);
 
   const addDebugLog = useCallback((level: DebugLogEntry['level'], message: string) => {
     setDebugLog((entries) => [
@@ -91,6 +125,37 @@ function App() {
       ...entries,
     ].slice(0, 24));
   }, []);
+
+  const saveNotes = useCallback(async () => {
+    if (notesContent === lastSavedNotes) {
+      setNotesStatus('Saved');
+      return;
+    }
+
+    setNotesError('');
+    setNotesStatus('Saving…');
+    try {
+      const payload: WriteNotesRequest = {
+        microappId: activeApp.manifest.id,
+        content: notesContent,
+      };
+      await invoke<void>('write_notes', payload);
+      setLastSavedNotes(notesContent);
+      setNotesStatus('Saved');
+    } catch (error) {
+      setNotesError(error instanceof Error ? error.message : String(error));
+      setNotesStatus('Unsaved');
+    }
+  }, [activeApp.manifest.id, lastSavedNotes, notesContent]);
+
+  useEffect(() => {
+    if (notesContent === lastSavedNotes) return;
+    setNotesStatus('Unsaved');
+    const timer = window.setTimeout(() => {
+      void saveNotes();
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [lastSavedNotes, notesContent, saveNotes]);
 
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
@@ -274,32 +339,26 @@ function App() {
               <p className="subtle">These are placeholders until generator and git integration land.</p>
             </section>
 
-        <section className="card muted-actions">
-          <h2>Next Shell Actions</h2>
-          <button disabled>Create New</button>
-          <button disabled>Edit</button>
-          <button disabled>Delete</button>
-          <p className="subtle">These are placeholders until generator and git integration land.</p>
-        </section>
-
-        <section className="card debug-card">
-          <div className="card-heading">
-            <h2>Bridge Log</h2>
-            <button onClick={() => setDebugLog([])} disabled={debugLog.length === 0}>Clear</button>
-          </div>
-          {debugLog.length === 0 ? (
-            <p className="subtle">Capability requests will appear here.</p>
-          ) : (
-            <ol className="debug-log">
-              {debugLog.map((entry) => (
-                <li className={entry.level} key={entry.id}>
-                  <time>{entry.timestamp}</time>
-                  <span>{entry.message}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
+            <section className="card debug-card">
+              <div className="card-heading">
+                <h2>Bridge Log</h2>
+                <button onClick={() => setDebugLog([])} disabled={debugLog.length === 0}>Clear</button>
+              </div>
+              {debugLog.length === 0 ? (
+                <p className="subtle">Capability requests will appear here.</p>
+              ) : (
+                <ol className="debug-log">
+                  {debugLog.map((entry) => (
+                    <li className={entry.level} key={entry.id}>
+                      <time>{entry.timestamp}</time>
+                      <span>{entry.message}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          </>
+        )}
       </aside>
 
       <main className="workspace">
@@ -313,15 +372,47 @@ function App() {
               <span key={capability}>{capability}</span>
             ))}
           </div>
+          <button
+            className={notesOpen ? 'notes-toggle active' : 'notes-toggle'}
+            type="button"
+            onClick={() => setNotesOpen((open) => !open)}
+          >
+            Notes
+          </button>
         </header>
 
-        <iframe
-          ref={iframeRef}
-          title={activeApp.manifest.name}
-          className="microapp-frame"
-          sandbox="allow-scripts"
-          srcDoc={activeApp.html}
-        />
+        <div className={notesOpen ? 'workspace-body with-notes' : 'workspace-body'}>
+          <iframe
+            ref={iframeRef}
+            title={activeApp.manifest.name}
+            className="microapp-frame"
+            sandbox="allow-scripts"
+            srcDoc={activeApp.html}
+          />
+
+          {notesOpen && (
+            <aside className="notes-panel" aria-label={`${activeApp.manifest.name} notes`}>
+              <div className="notes-heading">
+                <div>
+                  <p className="eyebrow">Markdown Notes</p>
+                  <h2>{activeApp.manifest.name}</h2>
+                </div>
+                <span className={notesStatus === 'Saved' ? 'status good' : 'status'}>{notesStatus}</span>
+              </div>
+              <textarea
+                value={notesContent}
+                onBlur={() => void saveNotes()}
+                onChange={(event) => {
+                  setNotesContent(event.target.value);
+                  setNotesStatus('Unsaved');
+                }}
+                spellCheck
+                placeholder="# Notes"
+              />
+              {notesError && <p className="status error">{notesError}</p>}
+            </aside>
+          )}
+        </div>
       </main>
     </div>
   );
